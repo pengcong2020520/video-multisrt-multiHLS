@@ -77,6 +77,24 @@ class AgentRuntime:
             target_languages=target_languages,
             config=context,
         )
+        # Seed RunContext with source_video asset from DB so media.probe can find it
+        from sqlalchemy import select as _select
+        source_asset = (
+            db.execute(
+                _select(models.MediaAsset).where(
+                    models.MediaAsset.project_id == project.project_id,
+                    models.MediaAsset.type == "source_video",
+                ).order_by(models.MediaAsset.created_at.desc())
+            ).scalars().first()
+        )
+        if source_asset is not None:
+            assets = run_context.data.setdefault("assets", {})
+            assets["source_video"] = {
+                "asset_id": source_asset.asset_id,
+                "uri": source_asset.uri,
+                "format": source_asset.format,
+                "type": "source_video",
+            }
         run_context.sync_to_run(run)
         self._create_tasks(db, run=run, context=run_context)
         self._enqueue(

@@ -93,6 +93,15 @@ class RunContext:
             "human_checkpoints": list(self.data.get("human_checkpoints") or []),
             "upstream_outputs": outputs_cache,
         }
+        # Flatten assets dict to top-level keys so skills can find them
+        # e.g. assets["source_video"] → payload["source_video"]
+        assets_dict = payload.get("assets") or {}
+        if isinstance(assets_dict, dict):
+            for _key, _val in assets_dict.items():
+                if isinstance(_val, dict) and _key not in payload:
+                    payload[_key] = deepcopy(_val)
+            # Also provide as list for skills that expect assets as a list
+            payload["assets_list"] = list(assets_dict.values())
         # Flatten commonly-needed upstream outputs to the top level so skills that
         # read payload["raw_transcript"], payload["translations"], etc. work without
         # needing to know about the upstream_outputs namespace.
