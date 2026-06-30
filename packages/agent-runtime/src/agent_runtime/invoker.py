@@ -36,7 +36,7 @@ class SkillInvoker:
         registry: SkillRegistry | None = None,
         runner: SkillRunnerPort | None = None,
     ) -> None:
-        self.registry = registry or SkillRegistry()
+        self.registry = registry or SkillRegistry(allow_missing_defaults=True)  # MVP: 允许跳过 DB 查找
         self.runner = runner or NoopSkillRunner()
 
     def invoke_with_retries(

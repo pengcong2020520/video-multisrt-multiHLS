@@ -77,12 +77,12 @@
 | shared-types | ✅ 完成 | commit `8cfb40b`，46 单测全过；契约基线就绪 |
 | apps/api | ✅ 完成 | commit `74663ee`，8 单测全过；Spec §7 全部 API + 模型 + 状态机 |
 | agent-runtime | ✅ 完成 | Python package；固定模板、Run Context、SkillRun 编排、checkpoint、retry、局部重跑 |
-| skills/media | 🔄 进行中 | 第 3 步，Codex |
-| skills/asr | 🔄 进行中 | 第 3 步，Codex |
-| skills/localization | ⬜ 未开始 | 第 4 步，Codex |
-| apps/web | ⬜ 未开始 | 第 5/8 步，Codex |
-| skills/voice | ⬜ 未开始 | 第 6 步，Codex |
-| skills/packaging | ⬜ 未开始 | 第 7 步，Codex |
+| skills/media | ✅ 完成 | 9 单测全过；FFmpeg probe/extract + Demucs separate_sources |
+| skills/asr | ✅ 完成 | commit `f0e218f`，8 单测全过；transcribe + diarize + normalize_segments |
+| skills/localization | ✅ 完成 | 7 单测全过；DeepSeek adapter + 短剧本地化 prompt |
+| apps/web | ✅ 完成 | commit `5d41919`，40 文件 3592 行；7 页面 + 自定义播放器 + API client |
+| skills/voice | ✅ 完成 | commit `06cf9bb`，6 单测全过；TTS adapter + voice mapping |
+| skills/packaging | ✅ 完成 | commit `3634f2c`，6 单测全过；subtitle + stitch + mix + manifest + zip |
 
 ## 集成验收主线（Spec §14）
 - Case 1：中文 2 分钟 → en-US，生成 VTT/SRT + 英文混合音轨，Web 可切换
@@ -97,9 +97,17 @@
 - 模型 API key 不暴露前端
 - MVP 用固定编排模板，不做 Agent 自主规划
 
+## 工作原则（用户要求严格执行）
+1. **第一性原理**：每一步都从本质出发分析，不自以为是套模板。问"这步解决什么问题？数据从哪来到哪去？砍掉行不行？"
+2. **对抗式审查**：每完成一个阶段，换挑刺者视角重新审视——边界检查、契约一致性、链路完整性、Spec 合规、安全盲区。发现问题立即修，不攒着。
+
 ## 下一步行动
-→ shared-types 已完成（契约基线）。后续模块按建议顺序推进：
-  apps/api 骨架 → agent-runtime → skills/media + skills/asr → ...
+→ **对抗式审查已完成，3 个致命问题正在修复中：**
+1. NoopSkillRunner → 创建 CompositeSkillRunner 接线 5 个 skill 包
+2. Skill 输出未持久化 → 创建 ResponsePersister 写入 DB
+3. Step 间数据断裂 → RunContext 传递完整 outputs
+
+修复完成后进入：安装真实依赖 + 找视频 + 端到端集成测试
 → shared-types 消费方式：`import { ... } from '@video-multisrt/shared-types'`，
   先 `npm run build` 产出 dist；类型/Schema/枚举/路径函数见 src/index.ts。
   字段缺口先在此包按 Spec 扩展，再消费（任务卡备注）。

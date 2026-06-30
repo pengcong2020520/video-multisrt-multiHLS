@@ -78,7 +78,7 @@ class InProcessAgentRuntime(AgentRuntime):
             skill_runner=skill_runner,
             registry=registry,
             persister=persister,
-            auto_execute=False,
+            auto_execute=True,  # MVP: 同步执行，不需要独立 worker
         )
 
 
