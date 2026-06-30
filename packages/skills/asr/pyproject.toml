@@ -1,0 +1,29 @@
+[project]
+name = "video-multisrt-skill-asr"
+version = "0.1.0"
+description = "ASR, diarization, and segment normalization skills for video-multisrt."
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+]
+faster-whisper = [
+  "faster-whisper>=1.0",
+]
+whisperx = [
+  "whisperx>=3.1",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "../../agent-runtime/src"]
+testpaths = ["tests"]
+addopts = "-q"

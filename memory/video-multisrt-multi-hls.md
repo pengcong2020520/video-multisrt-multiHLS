@@ -77,8 +77,8 @@
 | shared-types | ✅ 完成 | commit `8cfb40b`，46 单测全过；契约基线就绪 |
 | apps/api | ✅ 完成 | commit `74663ee`，8 单测全过；Spec §7 全部 API + 模型 + 状态机 |
 | agent-runtime | ✅ 完成 | Python package；固定模板、Run Context、SkillRun 编排、checkpoint、retry、局部重跑 |
-| skills/media | ⬜ 未开始 | 第 3 步，Codex |
-| skills/asr | ⬜ 未开始 | 第 3 步，Codex |
+| skills/media | 🔄 进行中 | 第 3 步，Codex |
+| skills/asr | 🔄 进行中 | 第 3 步，Codex |
 | skills/localization | ⬜ 未开始 | 第 4 步，Codex |
 | apps/web | ⬜ 未开始 | 第 5/8 步，Codex |
 | skills/voice | ⬜ 未开始 | 第 6 步，Codex |
