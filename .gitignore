@@ -6,3 +6,7 @@ __pycache__/
 .DS_Store
 dist/
 build/
+*.sqlite3
+.pytest_cache/
+apps/*/.venv/
+apps/*/.pytest_cache/
