@@ -1,0 +1,65 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color: #17202a;
+  background: #eef2f6;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex h-9 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-ink shadow-soft transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply border-accent bg-accent text-white hover:border-teal-800 hover:bg-teal-800;
+  }
+
+  .btn-danger {
+    @apply border-danger bg-danger text-white hover:border-red-800 hover:bg-red-800;
+  }
+
+  .field {
+    @apply h-9 w-full rounded-md border border-line bg-white px-3 text-sm text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-teal-100;
+  }
+
+  .textarea {
+    @apply min-h-20 w-full rounded-md border border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-teal-100;
+  }
+
+  .panel {
+    @apply rounded-lg border border-line bg-white shadow-soft;
+  }
+
+  .panel-header {
+    @apply border-b border-line px-4 py-3;
+  }
+
+  .panel-body {
+    @apply px-4 py-4;
+  }
+
+  .table-head {
+    @apply bg-slate-100 text-left text-xs font-semibold uppercase text-slate-600;
+  }
+
+  .table-cell {
+    @apply border-b border-line px-3 py-3 align-top text-sm;
+  }
+}
