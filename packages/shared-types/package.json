@@ -1,0 +1,32 @@
+{
+  "name": "@video-multisrt/shared-types",
+  "version": "0.1.0",
+  "private": true,
+  "description": "全仓共享契约：Spec §3-§13 的 TypeScript 类型、zod Schema、枚举与纯函数。所有其他模块的编译期契约基线。",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4",
+    "vitest": "^2.0.5"
+  }
+}
