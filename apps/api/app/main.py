@@ -7,9 +7,11 @@ from app.auth import AuthMiddleware
 from app.config import Settings
 from app.db import build_session_factory, create_schema
 from app.domain.errors import ApiError, api_error_handler, validation_error_handler
+from app.persister import DatabaseResponsePersister
 from app.queue import build_queue
 from app.routes import router
 from app.runtime import InProcessAgentRuntime
+from app.skill_runner import CompositeSkillRunner
 from app.storage import SignedUrlObjectStorage
 
 
@@ -25,7 +27,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.session_factory = session_factory
     app.state.queue = queue
-    app.state.runtime = InProcessAgentRuntime(queue)
+
+    skill_runner = CompositeSkillRunner()
+    persister = DatabaseResponsePersister()
+    app.state.runtime = InProcessAgentRuntime(
+        queue,
+        skill_runner=skill_runner,
+        persister=persister,
+    )
     app.state.storage = SignedUrlObjectStorage(
         settings.public_url_base,
         settings.storage_secret,

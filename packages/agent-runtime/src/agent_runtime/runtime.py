@@ -12,6 +12,7 @@ from app.domain.state_machine import validate_agent_run_transition, validate_pro
 from agent_runtime.context import RunContext
 from agent_runtime.contracts import SkillResponse, SkillRunnerPort
 from agent_runtime.invoker import SkillInvoker
+from agent_runtime.persister import NoopResponsePersister, ResponsePersisterPort
 from agent_runtime.registry import SkillRegistry
 from agent_runtime.templates import (
     RuntimeStep,
@@ -32,10 +33,12 @@ class AgentRuntime:
         *,
         skill_runner: SkillRunnerPort | None = None,
         registry: SkillRegistry | None = None,
+        persister: ResponsePersisterPort | None = None,
         auto_execute: bool = False,
     ) -> None:
         self.queue = queue
         self.auto_execute = auto_execute
+        self.persister = persister or NoopResponsePersister()
         self.invoker = SkillInvoker(registry=registry, runner=skill_runner)
 
     def create_run(
@@ -158,6 +161,14 @@ class AgentRuntime:
                 if response.status == "failed":
                     return self._fail_run(run=run, project=project, context=context, response=response)
                 context.apply_response(
+                    skill_name=step.name,
+                    target_language=target_language,
+                    response=response,
+                )
+                self.persister.persist(
+                    db,
+                    project_id=run.project_id,
+                    run_id=run.run_id,
                     skill_name=step.name,
                     target_language=target_language,
                     response=response,

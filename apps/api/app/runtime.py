@@ -15,6 +15,9 @@ if _RUNTIME_SRC.exists() and str(_RUNTIME_SRC) not in sys.path:
     sys.path.append(str(_RUNTIME_SRC))
 
 from agent_runtime import AgentRuntime, task_plan_for_template, task_requires_language  # noqa: E402
+from agent_runtime.contracts import SkillRunnerPort  # noqa: E402
+from agent_runtime.persister import ResponsePersisterPort  # noqa: E402
+from agent_runtime.registry import SkillRegistry  # noqa: E402
 
 
 class AgentRuntimePort(Protocol):
@@ -62,8 +65,21 @@ class AgentRuntimePort(Protocol):
 
 
 class InProcessAgentRuntime(AgentRuntime):
-    def __init__(self, queue: QueuePort) -> None:
-        super().__init__(queue=queue, auto_execute=False)
+    def __init__(
+        self,
+        queue: QueuePort,
+        *,
+        skill_runner: SkillRunnerPort | None = None,
+        registry: SkillRegistry | None = None,
+        persister: ResponsePersisterPort | None = None,
+    ) -> None:
+        super().__init__(
+            queue=queue,
+            skill_runner=skill_runner,
+            registry=registry,
+            persister=persister,
+            auto_execute=False,
+        )
 
 
 __all__ = [
