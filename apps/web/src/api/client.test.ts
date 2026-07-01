@@ -16,6 +16,7 @@ describe('ApiClient', () => {
       jsonResponse({
         project_id: 'proj_1',
         upload_url: 'http://upload.test/source.mp4',
+        preview_url: 'http://download.test/source.mp4',
       }),
     )
     const client = new ApiClient({
@@ -32,6 +33,7 @@ describe('ApiClient', () => {
     })
 
     expect(response.project_id).toBe('proj_1')
+    expect(response.preview_url).toBe('http://download.test/source.mp4')
     expect(fetcher).toHaveBeenCalledWith(
       'http://api.test/api/projects',
       expect.objectContaining({
@@ -46,6 +48,44 @@ describe('ApiClient', () => {
           target_languages: ['en-US'],
           translation_style: 'short_drama_localized',
         }),
+      }),
+    )
+  })
+
+  it('triggers on-demand translate and dubbing runs', async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ run_id: 'run_translate', status: 'pending' }))
+      .mockResolvedValueOnce(jsonResponse({ run_id: 'run_dub', status: 'pending' }))
+    const client = new ApiClient({
+      baseUrl: 'http://api.test/api',
+      userId: 'user_123',
+      fetcher: fetcher as unknown as typeof fetch,
+    })
+
+    await expect(client.translateProject('proj_1', { target_language: 'en-US' })).resolves.toEqual({
+      run_id: 'run_translate',
+      status: 'pending',
+    })
+    await expect(client.dubProject('proj_1', { target_language: 'es-ES' })).resolves.toEqual({
+      run_id: 'run_dub',
+      status: 'pending',
+    })
+
+    expect(fetcher).toHaveBeenNthCalledWith(
+      1,
+      'http://api.test/api/projects/proj_1/translate',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ target_language: 'en-US' }),
+      }),
+    )
+    expect(fetcher).toHaveBeenNthCalledWith(
+      2,
+      'http://api.test/api/projects/proj_1/dub',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ target_language: 'es-ES' }),
       }),
     )
   })

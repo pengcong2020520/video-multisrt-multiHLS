@@ -674,10 +674,9 @@ def _seed_run_context_from_db(
 
     segments = [segment_to_dict(segment) for segment in _project_segments(db, project.project_id)]
     translations = [
-        translation_to_dict(translation)
+        _translation_payload(translation)
         for translation in _active_translations_for_language(db, project.project_id, target_language)
     ]
-    translations = [translation for translation in translations if translation is not None]
     outputs = dict(context.get("outputs") or {})
     outputs["transcript.normalize_segments"] = {
         "segments": segments,
@@ -704,7 +703,8 @@ def _has_ready_dub_inputs(db: Session, project_id: str, target_language: str) ->
     if not segments:
         return False
     translations = _active_translations_for_language(db, project_id, target_language)
-    if len(translations) < len(segments):
+    translated_segment_ids = {translation.segment_id for translation in translations}
+    if not {segment.segment_id for segment in segments}.issubset(translated_segment_ids):
         return False
     return _latest_non_stale_asset(db, project_id, AssetType.BACKGROUND_AUDIO) is not None
 
@@ -921,8 +921,17 @@ def _active_translations_for_language(
 
 def _asset_payload(asset: models.MediaAsset) -> dict[str, Any]:
     payload = asset_to_dict(asset)
+    payload["created_at"] = asset.created_at.isoformat()
     payload["version_id"] = asset.version_id
     payload["stale"] = asset.stale
+    return payload
+
+
+def _translation_payload(translation: models.Translation) -> dict[str, Any]:
+    payload = translation_to_dict(translation)
+    if payload is None:
+        return {}
+    payload["updated_at"] = translation.updated_at.isoformat()
     return payload
 
 

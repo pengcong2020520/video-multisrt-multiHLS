@@ -55,17 +55,21 @@ What do you want?`),
     const video = screen.getByTestId('preview-video') as HTMLVideoElement
     const audio = screen.getByTestId('preview-audio') as HTMLAudioElement
 
+    expect(screen.getByTestId('audio-select')).toHaveValue('video')
+
     video.currentTime = 2
     audio.currentTime = 0
     fireEvent.timeUpdate(video)
 
     expect(screen.getByTestId('active-caption')).toHaveTextContent('What do you want?')
-    expect(audio.currentTime).toBe(2)
+    expect(audio.currentTime).toBe(0)
 
     fireEvent.change(screen.getByTestId('audio-select'), {
       target: { value: 'en-US' },
     })
+    fireEvent.timeUpdate(video)
     expect(audio.src).toContain('/en.m4a')
+    expect(audio.currentTime).toBe(2)
     expect(video.muted).toBe(true)
   })
 })
