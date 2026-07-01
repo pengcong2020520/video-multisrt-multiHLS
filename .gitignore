@@ -1,22 +1,84 @@
-node_modules/
-.venv/
+# Python
 __pycache__/
-*.log
-.env
-.DS_Store
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+*.egg-link/
+.eggs/
+develop-eggs/
+sdist/
+wheels/
+*.whl
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+apps/*/.venv/
+
+# Node
+node_modules/
 dist/
 build/
-*.sqlite3
+.next/
+.nuxt/
+
+# Testing
 .pytest_cache/
-apps/*/.venv/
+.coverage
+htmlcov/
+.coverage.*
 apps/*/.pytest_cache/
-api.sqlite3
+
+# Database
 *.sqlite3
+*.sqlite3-journal
+*.db
+
+# Storage (runtime generated files)
 storage/
-*.egg-info/
+apps/*/storage/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+
+# Test fixtures (large binary files)
 tests/fixtures/
-api.sqlite3
-*.sqlite3
-storage/
-*.egg-info/
-tests/fixtures/
+
+# Hermes (not part of project)
+hermes/
+.hermes/
+
+# Build artifacts
+*.spec
+
+# Jupyter
+.ipynb_checkpoints/
+
+# TypeScript
+*.tsbuildinfo
+
+# Misc
+TODO.md
+NOTES.md

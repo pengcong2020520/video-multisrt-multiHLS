@@ -102,8 +102,13 @@
 2. **对抗式审查**：每完成一个阶段，换挑刺者视角重新审视——边界检查、契约一致性、链路完整性、Spec 合规、安全盲区。发现问题立即修，不攒着。
 
 ## 下一步行动
-→ E2E 测试进行中。已修 4 个运行时 bug，正在修第 5 个（文件路径不匹配：`storage/proj_xxx/` vs `storage/projects/proj_xxx/`）。
-→ 修完后继续跑通：probe → extract → separate → ASR → translate → subtitle → TTS → mix → manifest → 预览
+→ E2E 主链路已跑通（subtitle_draft 模板）！7 个 skill 全部 succeeded。
+→ 用户 review 后提出 8 个改进，第一批（紧急）：
+  1. 清理环境配置 + .gitignore（排除 hermes venv/egg-info/sqlite）
+  2. 重写 README.md（标准 GitHub 格式）
+  3. 去掉所有 mock，补充真实实现
+  4. 验证 Step TTS 接入（OpenAI 兼容接口）
+  5. 修正前后端交互链路：上传→缓存→预览原视频→按需切字幕/音轨
 
 ## 项目复盘经验（持续更新）
 
