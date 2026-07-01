@@ -104,6 +104,55 @@ class FFmpegAdapter:
         if result.returncode != 0:
             raise InvalidVideoError(_clean_stderr(result.stderr) or "ffmpeg could not extract audio")
 
+    def generate_preview(
+        self,
+        input_path: str | Path,
+        output_path: str | Path,
+        *,
+        max_width: int = 854,
+        max_height: int = 480,
+        video_bitrate: str = "1000k",
+        audio_bitrate: str = "128k",
+    ) -> None:
+        """Generate a compressed preview video optimized for web playback.
+
+        Uses H.264 + AAC with faststart for streaming.
+        Scales down to max_width x max_height while preserving aspect ratio.
+        """
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        result = self.runner.run(
+            [
+                self.ffmpeg_bin,
+                "-y",
+                "-i",
+                str(input_path),
+                "-c:v",
+                "libx264",
+                "-preset",
+                "fast",
+                "-crf",
+                "28",
+                "-maxrate",
+                video_bitrate,
+                "-bufsize",
+                "2000k",
+                "-vf",
+                f"scale='min({max_width},iw)':'min({max_height},ih)':force_original_aspect_ratio=decrease",
+                "-c:a",
+                "aac",
+                "-b:a",
+                audio_bitrate,
+                "-movflags",
+                "+faststart",
+                "-map",
+                "0",
+                str(output_path),
+            ],
+            timeout_seconds=self.timeout_seconds,
+        )
+        if result.returncode != 0:
+            raise InvalidVideoError(_clean_stderr(result.stderr) or "ffmpeg could not generate preview")
+
 
 def parse_ffprobe_json(payload: str) -> ProbeMetadata:
     try:

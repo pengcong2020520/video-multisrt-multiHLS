@@ -14,6 +14,7 @@ import type {
   GenerateProjectRequest,
   KnownProject,
   ManifestResponse,
+  OnDemandLanguageRequest,
   PatchSegmentRequest,
   ProcessProjectRequest,
   QueryAgentRunResponse,
@@ -86,6 +87,26 @@ export class ApiClient {
 
   processProject(projectId: string, payload: ProcessProjectRequest): Promise<RunResponse> {
     return this.request<RunResponse>(`/projects/${encodeURIComponent(projectId)}/process`, {
+      method: 'POST',
+      body: payload,
+    }).then((response) => {
+      rememberRun(projectId, response.run_id)
+      return response
+    })
+  }
+
+  translateProject(projectId: string, payload: OnDemandLanguageRequest): Promise<RunResponse> {
+    return this.request<RunResponse>(`/projects/${encodeURIComponent(projectId)}/translate`, {
+      method: 'POST',
+      body: payload,
+    }).then((response) => {
+      rememberRun(projectId, response.run_id)
+      return response
+    })
+  }
+
+  dubProject(projectId: string, payload: OnDemandLanguageRequest): Promise<RunResponse> {
+    return this.request<RunResponse>(`/projects/${encodeURIComponent(projectId)}/dub`, {
       method: 'POST',
       body: payload,
     }).then((response) => {

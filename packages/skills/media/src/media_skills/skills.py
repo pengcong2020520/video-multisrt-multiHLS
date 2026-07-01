@@ -30,6 +30,8 @@ def invoke(
         return extract_audio(request_map, ffmpeg=ffmpeg, path_resolver=path_resolver)
     if skill_name == "audio.separate_sources":
         return separate_sources(request_map, separation_adapter=separation_adapter, path_resolver=path_resolver)
+    if skill_name == "media.generate_preview":
+        return generate_preview(request_map, ffmpeg=ffmpeg, path_resolver=path_resolver)
     return failure_response(ErrorCode.SKILL_RUN_FAILED.value, f"Unsupported skill: {skill_name}")
 
 
@@ -279,6 +281,56 @@ def _demucs_from_config(config: Mapping[str, Any]) -> DemucsSourceSeparationAdap
             timeout_seconds=_timeout(config, default=900),
         )
     )
+
+
+def generate_preview(
+    request: Mapping[str, Any] | Any,
+    *,
+    ffmpeg: FFmpegAdapter | None = None,
+    path_resolver: StoragePathResolver | None = None,
+) -> dict[str, Any]:
+    """Generate a compressed preview video for web playback."""
+    request_map = _request_mapping(request)
+    config = _config(request_map)
+    resolver = path_resolver or _resolver_from_config(config)
+    adapter = ffmpeg or FFmpegAdapter(timeout_seconds=_timeout(config, default=120))
+
+    try:
+        source_video = _asset_from_input(
+            _input(request_map),
+            project_id=_project_id(request_map),
+            expected_type=AssetType.SOURCE_VIDEO,
+            id_key="source_video_asset_id",
+            asset_keys=("source_video", "source_video_asset", "asset"),
+            uri_keys=("source_video_uri", "uri"),
+        )
+        project_id = _project_id(request_map)
+        run_id = _run_id(request_map)
+        preview_key = f"projects/{project_id}/preview/preview.mp4"
+        storage_root = resolver.storage_root
+        output_path = str(Path(storage_root) / preview_key) if storage_root else preview_key
+        adapter.generate_preview(
+            resolver.input_path(source_video),
+            output_path,
+            max_width=int(config.get("preview_max_width", 854)),
+            max_height=int(config.get("preview_max_height", 480)),
+        )
+        asset = _media_asset(
+            project_id=project_id,
+            run_id=run_id,
+            asset_type="preview_video",
+            uri=f"storage://private/{preview_key}",
+            fmt="mp4",
+            local_path=Path(output_path),
+        )
+        return success_response(
+            {"preview_asset_id": asset.asset_id, "preview_uri": asset.uri},
+            assets=[asset.to_dict()],
+        )
+    except MediaSkillError as exc:
+        return failure_response(exc.code, str(exc))
+    except Exception as exc:
+        return failure_response(ErrorCode.SKILL_RUN_FAILED.value, str(exc))
 
 
 def _asset_from_input(

@@ -29,6 +29,7 @@ from app.schemas import (
     ContinueRunRequest,
     CreateProjectRequest,
     GenerateProjectRequest,
+    OnDemandLanguageRequest,
     PackageRequestBody,
     PatchSegmentRequest,
     ProcessProjectRequest,
@@ -53,7 +54,7 @@ def create_project(
     payload: CreateProjectRequest,
     *,
     actor_id: str,
-) -> tuple[models.Project, str]:
+) -> tuple[models.Project, str, str]:
     project = models.Project(
         name=payload.name,
         status=ProjectStatus.DRAFT.value,
@@ -78,7 +79,8 @@ def create_project(
     )
     db.add(source_asset)
     upload_url = storage.generate_upload_url(source_key)
-    return project, upload_url
+    preview_url = storage.generate_download_url(source_asset.uri)
+    return project, upload_url, preview_url
 
 
 def submit_processing(
@@ -102,6 +104,81 @@ def submit_processing(
         target_languages=project.target_languages,
         context=context,
     )
+    return run
+
+
+def translate_project(
+    db: Session,
+    runtime: AgentRuntimePort,
+    project_id: str,
+    payload: OnDemandLanguageRequest,
+    *,
+    actor_id: str,
+) -> models.AgentRun:
+    project = get_project_or_404(db, project_id)
+    target_language = _validated_target_language(payload.target_language)
+    _add_target_language(project, target_language)
+    _prepare_project_for_processing(project)
+    version = get_or_create_active_version(db, project, actor_id=actor_id)
+    return runtime.create_run(
+        db,
+        project,
+        version=version,
+        template=AgentTemplate.SUBTITLE_DRAFT,
+        created_by=actor_id,
+        target_languages=[target_language],
+        context={
+            "enable_source_separation": True,
+            "enable_diarization": True,
+            "generate_tts": False,
+            "generate_preview_mp4": False,
+            "agent_template": AgentTemplate.SUBTITLE_DRAFT.value,
+            "style": project.translation_style,
+        },
+    )
+
+
+def dub_project(
+    db: Session,
+    runtime: AgentRuntimePort,
+    project_id: str,
+    payload: OnDemandLanguageRequest,
+    *,
+    actor_id: str,
+) -> models.AgentRun:
+    project = get_project_or_404(db, project_id)
+    target_language = _validated_target_language(payload.target_language)
+    _add_target_language(project, target_language)
+
+    if _has_ready_dub_inputs(db, project.project_id, target_language):
+        return _create_seeded_dub_run(
+            db,
+            runtime,
+            project,
+            target_language=target_language,
+            actor_id=actor_id,
+        )
+
+    _prepare_project_for_processing(project)
+    version = get_or_create_active_version(db, project, actor_id=actor_id)
+    run = runtime.create_run(
+        db,
+        project,
+        version=version,
+        template=AgentTemplate.FULL_DUBBING,
+        created_by=actor_id,
+        target_languages=[target_language],
+        context={
+            "enable_source_separation": True,
+            "enable_diarization": True,
+            "generate_tts": True,
+            "generate_preview_mp4": False,
+            "agent_template": AgentTemplate.FULL_DUBBING.value,
+            "style": project.translation_style,
+        },
+    )
+    if run.status == AgentRunStatus.WAITING_HUMAN.value:
+        run = runtime.continue_run(db, run)
     return run
 
 
@@ -480,6 +557,158 @@ def get_version_or_active(
     return get_or_create_active_version(db, project, actor_id=project.created_by)
 
 
+def _validated_target_language(target_language: str) -> str:
+    if target_language not in TARGET_LANGUAGES:
+        raise ApiError(ErrorCode.INVALID_REQUEST, f"unsupported target_language: {target_language}")
+    return target_language
+
+
+def _add_target_language(project: models.Project, target_language: str) -> None:
+    project.target_languages = list(dict.fromkeys([*project.target_languages, target_language]))
+
+
+def _prepare_project_for_processing(project: models.Project) -> None:
+    status = ProjectStatus(project.status)
+    if status in {ProjectStatus.PROCESSING, ProjectStatus.GENERATING}:
+        raise ApiError(ErrorCode.INVALID_REQUEST, "Project is already processing")
+    if status == ProjectStatus.ARCHIVED:
+        raise ApiError(ErrorCode.INVALID_REQUEST, "Archived projects cannot be processed")
+    if status == ProjectStatus.PROOFREADING:
+        _set_project_status(project, ProjectStatus.PROCESSING)
+        return
+    if status in {ProjectStatus.DRAFT, ProjectStatus.UPLOADED, ProjectStatus.FAILED, ProjectStatus.COMPLETED}:
+        _set_project_status(project, ProjectStatus.PLANNING)
+
+
+def _prepare_project_for_generation(project: models.Project) -> None:
+    status = ProjectStatus(project.status)
+    if status in {ProjectStatus.PROCESSING, ProjectStatus.GENERATING}:
+        raise ApiError(ErrorCode.INVALID_REQUEST, "Project is already processing")
+    if status == ProjectStatus.ARCHIVED:
+        raise ApiError(ErrorCode.INVALID_REQUEST, "Archived projects cannot be processed")
+    if status == ProjectStatus.DRAFT:
+        _set_project_status(project, ProjectStatus.PLANNING)
+        _set_project_status(project, ProjectStatus.PROCESSING)
+        return
+    if status == ProjectStatus.UPLOADED:
+        _set_project_status(project, ProjectStatus.PROCESSING)
+        return
+    if status == ProjectStatus.FAILED:
+        _set_project_status(project, ProjectStatus.PROCESSING)
+        return
+    if status == ProjectStatus.PLANNING:
+        _set_project_status(project, ProjectStatus.PROCESSING)
+        return
+    if status in {ProjectStatus.PROOFREADING, ProjectStatus.COMPLETED}:
+        _set_project_status(project, ProjectStatus.GENERATING)
+
+
+def _create_seeded_dub_run(
+    db: Session,
+    runtime: AgentRuntimePort,
+    project: models.Project,
+    *,
+    target_language: str,
+    actor_id: str,
+) -> models.AgentRun:
+    _prepare_project_for_generation(project)
+    version = get_or_create_active_version(db, project, actor_id=actor_id)
+    context = {
+        "scope": "language",
+        "target_language": target_language,
+        "steps": ["subtitle", "tts", "mix"],
+        "agent_template": AgentTemplate.RERUN_SEGMENTS.value,
+        "style": project.translation_style,
+    }
+
+    execute = getattr(runtime, "execute", None)
+    auto_execute = getattr(runtime, "auto_execute", False)
+    if callable(execute) and auto_execute:
+        setattr(runtime, "auto_execute", False)
+        try:
+            run = runtime.create_run(
+                db,
+                project,
+                version=version,
+                template=AgentTemplate.RERUN_SEGMENTS,
+                created_by=actor_id,
+                target_languages=[target_language],
+                context=context,
+            )
+        finally:
+            setattr(runtime, "auto_execute", True)
+        _seed_run_context_from_db(db, run, project, target_language)
+        return execute(db, run)
+
+    run = runtime.create_run(
+        db,
+        project,
+        version=version,
+        template=AgentTemplate.RERUN_SEGMENTS,
+        created_by=actor_id,
+        target_languages=[target_language],
+        context=context,
+    )
+    _seed_run_context_from_db(db, run, project, target_language)
+    return run
+
+
+def _seed_run_context_from_db(
+    db: Session,
+    run: models.AgentRun,
+    project: models.Project,
+    target_language: str,
+) -> None:
+    context = dict(run.run_context or {})
+    assets = dict(context.get("assets") or {})
+    for asset_type, key in (
+        (AssetType.SOURCE_VIDEO, "source_video"),
+        (AssetType.SOURCE_AUDIO, "source_audio"),
+        (AssetType.SOURCE_VOCAL, "source_vocal"),
+        (AssetType.BACKGROUND_AUDIO, "background_audio"),
+    ):
+        asset = _latest_non_stale_asset(db, project.project_id, asset_type)
+        if asset is not None:
+            assets[key] = _asset_payload(asset)
+    context["assets"] = assets
+
+    segments = [segment_to_dict(segment) for segment in _project_segments(db, project.project_id)]
+    translations = [
+        translation_to_dict(translation)
+        for translation in _active_translations_for_language(db, project.project_id, target_language)
+    ]
+    translations = [translation for translation in translations if translation is not None]
+    outputs = dict(context.get("outputs") or {})
+    outputs["transcript.normalize_segments"] = {
+        "segments": segments,
+        "segment_ids": [segment["segment_id"] for segment in segments],
+        "segments_version": f"db:{project.project_id}:segments",
+    }
+    translation_output = {
+        "translations": translations,
+        "active_translations": translations,
+        "translation_versions": {target_language: f"db:{project.project_id}:{target_language}"},
+        "translation_ids": [translation["translation_id"] for translation in translations],
+        "translation_version": f"db:{project.project_id}:{target_language}",
+    }
+    outputs[f"localization.translate:{target_language}"] = translation_output
+    outputs["localization.translate"] = translation_output
+    context["outputs"] = outputs
+    context["segments_version"] = f"db:{project.project_id}:segments"
+    context["translation_versions"] = {target_language: f"db:{project.project_id}:{target_language}"}
+    run.run_context = context
+
+
+def _has_ready_dub_inputs(db: Session, project_id: str, target_language: str) -> bool:
+    segments = _project_segments(db, project_id)
+    if not segments:
+        return False
+    translations = _active_translations_for_language(db, project_id, target_language)
+    if len(translations) < len(segments):
+        return False
+    return _latest_non_stale_asset(db, project_id, AssetType.BACKGROUND_AUDIO) is not None
+
+
 def _set_project_status(project: models.Project, status: ProjectStatus) -> None:
     validate_project_transition(project.status, status)
     project.status = status.value
@@ -638,6 +867,63 @@ def _latest_asset(
         .scalars()
         .first()
     )
+
+
+def _latest_non_stale_asset(
+    db: Session, project_id: str, asset_type: AssetType
+) -> models.MediaAsset | None:
+    return (
+        db.execute(
+            select(models.MediaAsset)
+            .where(
+                models.MediaAsset.project_id == project_id,
+                models.MediaAsset.type == asset_type.value,
+                models.MediaAsset.stale.is_(False),
+            )
+            .order_by(desc(models.MediaAsset.created_at))
+        )
+        .scalars()
+        .first()
+    )
+
+
+def _project_segments(db: Session, project_id: str) -> list[models.Segment]:
+    return (
+        db.execute(
+            select(models.Segment)
+            .where(models.Segment.project_id == project_id)
+            .order_by(models.Segment.index)
+        )
+        .scalars()
+        .all()
+    )
+
+
+def _active_translations_for_language(
+    db: Session, project_id: str, target_language: str
+) -> list[models.Translation]:
+    return (
+        db.execute(
+            select(models.Translation)
+            .join(models.Segment, models.Segment.segment_id == models.Translation.segment_id)
+            .where(
+                models.Segment.project_id == project_id,
+                models.Translation.target_language == target_language,
+                models.Translation.active.is_(True),
+                models.Translation.stale.is_(False),
+            )
+            .order_by(models.Segment.index, desc(models.Translation.updated_at))
+        )
+        .scalars()
+        .all()
+    )
+
+
+def _asset_payload(asset: models.MediaAsset) -> dict[str, Any]:
+    payload = asset_to_dict(asset)
+    payload["version_id"] = asset.version_id
+    payload["stale"] = asset.stale
+    return payload
 
 
 def _assets_by_types(

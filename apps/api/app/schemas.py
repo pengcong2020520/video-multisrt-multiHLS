@@ -23,7 +23,7 @@ class StrictRequest(BaseModel):
 class CreateProjectRequest(StrictRequest):
     name: str = Field(min_length=1, max_length=255)
     source_language: str
-    target_languages: list[str] = Field(min_length=1)
+    target_languages: list[str] = Field(default_factory=list)
     translation_style: str = Field(default="short_drama_localized", min_length=1, max_length=128)
 
     @field_validator("source_language")
@@ -46,6 +46,7 @@ class CreateProjectRequest(StrictRequest):
 class CreateProjectResponse(BaseModel):
     project_id: str
     upload_url: str
+    preview_url: str
 
 
 class ProcessProjectRequest(StrictRequest):
@@ -59,6 +60,17 @@ class ProcessProjectRequest(StrictRequest):
 class RunResponse(BaseModel):
     run_id: str
     status: AgentRunStatus
+
+
+class OnDemandLanguageRequest(StrictRequest):
+    target_language: str
+
+    @field_validator("target_language")
+    @classmethod
+    def validate_target_language(cls, value: str) -> str:
+        if value not in TARGET_LANGUAGES:
+            raise ValueError(f"unsupported target_language: {value}")
+        return value
 
 
 class ContinueRunRequest(StrictRequest):

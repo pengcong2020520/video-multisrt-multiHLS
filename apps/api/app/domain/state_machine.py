@@ -11,7 +11,7 @@ PROJECT_TRANSITIONS: dict[ProjectStatus, set[ProjectStatus]] = {
     ProjectStatus.PROCESSING: {ProjectStatus.PROOFREADING, ProjectStatus.GENERATING, ProjectStatus.COMPLETED, ProjectStatus.FAILED, ProjectStatus.ARCHIVED},
     ProjectStatus.PROOFREADING: {ProjectStatus.PROCESSING, ProjectStatus.GENERATING, ProjectStatus.FAILED, ProjectStatus.ARCHIVED},
     ProjectStatus.GENERATING: {ProjectStatus.COMPLETED, ProjectStatus.FAILED, ProjectStatus.ARCHIVED},
-    ProjectStatus.COMPLETED: {ProjectStatus.GENERATING, ProjectStatus.ARCHIVED},
+    ProjectStatus.COMPLETED: {ProjectStatus.PLANNING, ProjectStatus.GENERATING, ProjectStatus.ARCHIVED},
     ProjectStatus.FAILED: {ProjectStatus.PLANNING, ProjectStatus.PROCESSING, ProjectStatus.ARCHIVED},
     ProjectStatus.ARCHIVED: set(),
 }

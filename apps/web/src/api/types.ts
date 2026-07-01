@@ -34,13 +34,14 @@ export type TranslationStyle =
 export interface CreateProjectRequest {
   name: string
   source_language: SourceLanguage
-  target_languages: TargetLanguage[]
-  translation_style: TranslationStyle | string
+  target_languages?: TargetLanguage[]
+  translation_style?: TranslationStyle | string
 }
 
 export interface CreateProjectResponse {
   project_id: string
   upload_url: string
+  preview_url: string
 }
 
 export interface ProcessProjectRequest {
@@ -54,6 +55,10 @@ export interface ProcessProjectRequest {
 export interface RunResponse {
   run_id: string
   status: AgentRunStatus
+}
+
+export interface OnDemandLanguageRequest {
+  target_language: TargetLanguage | string
 }
 
 export interface ContinueAgentRunRequest {

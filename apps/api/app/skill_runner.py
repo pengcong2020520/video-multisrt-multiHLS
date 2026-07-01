@@ -94,6 +94,7 @@ def _import_voice_runner() -> Any:
 _MEDIA_SKILLS = {
     "media.probe",
     "media.extract_audio",
+    "media.generate_preview",
     "audio.separate_sources",
 }
 _ASR_SKILLS = {

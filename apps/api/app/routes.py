@@ -14,6 +14,7 @@ from app.schemas import (
     CreateProjectResponse,
     GenerateProjectRequest,
     ManifestResponse,
+    OnDemandLanguageRequest,
     PackageRequestBody,
     PackageResponse,
     PatchSegmentRequest,
@@ -39,7 +40,7 @@ def create_project(
     db: DbSession,
     user: User,
 ) -> CreateProjectResponse:
-    project, upload_url = services.create_project(
+    project, upload_url, preview_url = services.create_project(
         db, request.app.state.storage, payload, actor_id=user.user_id
     )
     record_audit(
@@ -51,7 +52,11 @@ def create_project(
         metadata={"name": payload.name, "target_languages": payload.target_languages},
     )
     db.commit()
-    return CreateProjectResponse(project_id=project.project_id, upload_url=upload_url)
+    return CreateProjectResponse(
+        project_id=project.project_id,
+        upload_url=upload_url,
+        preview_url=preview_url,
+    )
 
 
 @router.post("/projects/{project_id}/process", response_model=RunResponse)
@@ -69,6 +74,54 @@ def process_project(
         db,
         request,
         action="process.submitted",
+        actor_id=user.user_id,
+        project_id=project_id,
+        run_id=run.run_id,
+        metadata=payload.model_dump(mode="json"),
+    )
+    db.commit()
+    return RunResponse(run_id=run.run_id, status=run.status)
+
+
+@router.post("/projects/{project_id}/translate", response_model=RunResponse)
+def translate_project(
+    project_id: str,
+    payload: OnDemandLanguageRequest,
+    request: Request,
+    db: DbSession,
+    user: User,
+) -> RunResponse:
+    run = services.translate_project(
+        db, request.app.state.runtime, project_id, payload, actor_id=user.user_id
+    )
+    record_audit(
+        db,
+        request,
+        action="translate.requested",
+        actor_id=user.user_id,
+        project_id=project_id,
+        run_id=run.run_id,
+        metadata=payload.model_dump(mode="json"),
+    )
+    db.commit()
+    return RunResponse(run_id=run.run_id, status=run.status)
+
+
+@router.post("/projects/{project_id}/dub", response_model=RunResponse)
+def dub_project(
+    project_id: str,
+    payload: OnDemandLanguageRequest,
+    request: Request,
+    db: DbSession,
+    user: User,
+) -> RunResponse:
+    run = services.dub_project(
+        db, request.app.state.runtime, project_id, payload, actor_id=user.user_id
+    )
+    record_audit(
+        db,
+        request,
+        action="dub.requested",
         actor_id=user.user_id,
         project_id=project_id,
         run_id=run.run_id,

@@ -5,18 +5,28 @@ import { activeCueAt, parseWebVtt, type VttCue } from '../lib/vtt'
 
 interface CustomPlayerProps {
   manifest: ManifestResponse
+  subtitleLanguage?: string
+  audioLanguage?: string
+  onSubtitleLanguageChange?: (language: string) => void
+  onAudioLanguageChange?: (language: string) => void
 }
 
-export function CustomPlayer({ manifest }: CustomPlayerProps) {
+export function CustomPlayer({
+  manifest,
+  subtitleLanguage: controlledSubtitleLanguage,
+  audioLanguage: controlledAudioLanguage,
+  onSubtitleLanguageChange,
+  onAudioLanguageChange,
+}: CustomPlayerProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
-  const [subtitleLanguage, setSubtitleLanguage] = useState<string>('none')
-  const [audioLanguage, setAudioLanguage] = useState<string>(
-    manifest.audio_tracks[0]?.language || 'video',
-  )
+  const [internalSubtitleLanguage, setInternalSubtitleLanguage] = useState<string>('none')
+  const [internalAudioLanguage, setInternalAudioLanguage] = useState<string>('video')
   const [cues, setCues] = useState<VttCue[]>([])
   const [currentTime, setCurrentTime] = useState(0)
   const [subtitleError, setSubtitleError] = useState<string | null>(null)
+  const subtitleLanguage = controlledSubtitleLanguage ?? internalSubtitleLanguage
+  const audioLanguage = controlledAudioLanguage ?? internalAudioLanguage
 
   const selectedSubtitle = useMemo(
     () => manifest.subtitles.find((item) => item.language === subtitleLanguage),
@@ -31,9 +41,26 @@ export function CustomPlayer({ manifest }: CustomPlayerProps) {
   const activeCue = subtitleLanguage === 'none' ? undefined : activeCueAt(cues, currentTime)
 
   useEffect(() => {
-    setSubtitleLanguage('none')
-    setAudioLanguage(manifest.audio_tracks[0]?.language || 'video')
-  }, [manifest.project_id, manifest.version_id, manifest.audio_tracks])
+    if (
+      subtitleLanguage !== 'none' &&
+      !manifest.subtitles.some((subtitle) => subtitle.language === subtitleLanguage)
+    ) {
+      changeSubtitleLanguage('none')
+    }
+    if (
+      audioLanguage !== 'video' &&
+      !manifest.audio_tracks.some((track) => track.language === audioLanguage)
+    ) {
+      changeAudioLanguage('video')
+    }
+  }, [
+    manifest.project_id,
+    manifest.version_id,
+    manifest.subtitles,
+    manifest.audio_tracks,
+    subtitleLanguage,
+    audioLanguage,
+  ])
 
   useEffect(() => {
     let cancelled = false
@@ -76,7 +103,9 @@ export function CustomPlayer({ manifest }: CustomPlayerProps) {
 
     if (selectedAudio) {
       video.muted = true
-      audio.src = selectedAudio.url
+      if (audio.getAttribute('src') !== selectedAudio.url) {
+        audio.src = selectedAudio.url
+      }
       syncAudioToVideo()
       if (!video.paused) {
         void audio.play()
@@ -88,6 +117,16 @@ export function CustomPlayer({ manifest }: CustomPlayerProps) {
     }
   }, [selectedAudio])
 
+  function changeSubtitleLanguage(language: string) {
+    setInternalSubtitleLanguage(language)
+    onSubtitleLanguageChange?.(language)
+  }
+
+  function changeAudioLanguage(language: string) {
+    setInternalAudioLanguage(language)
+    onAudioLanguageChange?.(language)
+  }
+
   function syncAudioToVideo(force = false) {
     const video = videoRef.current
     const audio = audioRef.current
@@ -96,7 +135,11 @@ export function CustomPlayer({ manifest }: CustomPlayerProps) {
     }
     const drift = Math.abs(audio.currentTime - video.currentTime)
     if (force || drift > 0.25) {
-      audio.currentTime = video.currentTime
+      try {
+        audio.currentTime = video.currentTime
+      } catch {
+        // Some browsers reject currentTime updates before metadata is ready.
+      }
     }
     audio.volume = video.volume
   }
@@ -170,7 +213,7 @@ export function CustomPlayer({ manifest }: CustomPlayerProps) {
           <select
             className="field"
             value={subtitleLanguage}
-            onChange={(event) => setSubtitleLanguage(event.target.value)}
+            onChange={(event) => changeSubtitleLanguage(event.target.value)}
             data-testid="subtitle-select"
           >
             <option value="none">无字幕</option>
@@ -190,10 +233,10 @@ export function CustomPlayer({ manifest }: CustomPlayerProps) {
           <select
             className="field"
             value={audioLanguage}
-            onChange={(event) => setAudioLanguage(event.target.value)}
+            onChange={(event) => changeAudioLanguage(event.target.value)}
             data-testid="audio-select"
           >
-            {manifest.audio_tracks.length ? null : <option value="video">视频内置音轨</option>}
+            <option value="video">视频内置音轨</option>
             {manifest.audio_tracks.map((track) => (
               <option key={`${track.language}-${track.url}`} value={track.language}>
                 {track.label}

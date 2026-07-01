@@ -7,6 +7,7 @@ import type {
   CreatePackageRequest,
   CreateProjectRequest,
   GenerateProjectRequest,
+  OnDemandLanguageRequest,
   PatchSegmentRequest,
   ProcessProjectRequest,
 } from '../api/types'
@@ -79,6 +80,33 @@ export function useProcessProject(projectId: string | undefined) {
     onSuccess: (run) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.project(projectId || '') })
       void queryClient.invalidateQueries({ queryKey: queryKeys.agentRun(run.run_id) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.knownProjects })
+    },
+  })
+}
+
+export function useTranslateProject(projectId: string | undefined) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: OnDemandLanguageRequest) =>
+      apiClient.translateProject(projectId || '', payload),
+    onSuccess: (run) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.project(projectId || '') })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.agentRun(run.run_id) })
+      void queryClient.invalidateQueries({ queryKey: ['manifest', projectId || ''] })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.knownProjects })
+    },
+  })
+}
+
+export function useDubProject(projectId: string | undefined) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: OnDemandLanguageRequest) => apiClient.dubProject(projectId || '', payload),
+    onSuccess: (run) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.project(projectId || '') })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.agentRun(run.run_id) })
+      void queryClient.invalidateQueries({ queryKey: ['manifest', projectId || ''] })
       void queryClient.invalidateQueries({ queryKey: queryKeys.knownProjects })
     },
   })
