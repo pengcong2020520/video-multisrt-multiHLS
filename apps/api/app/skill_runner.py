@@ -133,9 +133,28 @@ class CompositeSkillRunner(SkillRunnerPort):
         self._asr_runner = asr_runner
         self._localization_runner = localization_runner
         self._voice_runner = voice_runner
+        # Inject storage_root from env so skills can find files on disk
+        import os as _os
+        self._storage_root = _os.environ.get("STORAGE_ROOT", "./storage")
 
     def invoke(self, request: SkillRequest) -> dict[str, Any]:
         skill_name = request.skill_name
+
+        # Inject storage_root into request config so all skills can resolve file paths
+        config = dict(request.config) if request.config else {}
+        config.setdefault("storage_root", self._storage_root)
+        config.setdefault("local_storage_root", self._storage_root)
+        # Create a modified request with the enriched config
+        from agent_runtime.contracts import SkillRequest as _SR
+        request = _SR(
+            skill_name=request.skill_name,
+            skill_version=request.skill_version,
+            project_id=request.project_id,
+            run_id=request.run_id,
+            input=request.input,
+            config=config,
+            idempotency_key=request.idempotency_key,
+        )
 
         try:
             if skill_name in _MEDIA_SKILLS:
