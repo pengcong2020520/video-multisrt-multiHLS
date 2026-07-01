@@ -185,6 +185,18 @@ _UPSTREAM_OUTPUT_KEYS = (
     "package_zip",
     "duration_ms",
     "detected_language",
+    # Media skill asset references
+    "audio_asset_id",
+    "source_audio_asset_id",
+    "uri",
+    "source_audio_uri",
+    "source_audio",
+    "audio_asset",
+    "vocal_asset_id",
+    "background_asset_id",
+    # Subtitle/manifest assets
+    "srt_asset_id",
+    "vtt_asset_id",
 )
 
 
