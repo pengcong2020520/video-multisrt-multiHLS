@@ -143,10 +143,26 @@ class CompositeSkillRunner(SkillRunnerPort):
     def invoke(self, request: SkillRequest) -> dict[str, Any]:
         skill_name = request.skill_name
 
-        # Inject storage_root into request config so all skills can resolve file paths
+        # Inject storage_root + API keys + provider config into request config
+        import os as _os
         config = dict(request.config) if request.config else {}
         config.setdefault("storage_root", self._storage_root)
         config.setdefault("local_storage_root", self._storage_root)
+        # DeepSeek (translation)
+        config.setdefault("provider", "deepseek")
+        config.setdefault("api_key", _os.environ.get("DEEPSEEK_API_KEY", ""))
+        config.setdefault("deepseek_api_key", _os.environ.get("DEEPSEEK_API_KEY", ""))
+        config.setdefault("base_url", _os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"))
+        config.setdefault("deepseek_base_url", _os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"))
+        config.setdefault("model", _os.environ.get("DEEPSEEK_MODEL", "deepseek-chat"))
+        # Step TTS
+        config.setdefault("tts_provider", "step")
+        config.setdefault("step_api_key", _os.environ.get("STEP_API_KEY", ""))
+        config.setdefault("step_base_url", _os.environ.get("STEP_BASE_URL", "https://api.stepfun.com/step_plan/v1"))
+        config.setdefault("step_tts_model", _os.environ.get("STEP_TTS_MODEL", "stepaudio-2.5-tts"))
+        # ASR
+        config.setdefault("asr_provider", "faster-whisper")
+        config.setdefault("compute_type", "float32")
         # Create a modified request with the enriched config
         from agent_runtime.contracts import SkillRequest as _SR
         request = _SR(
