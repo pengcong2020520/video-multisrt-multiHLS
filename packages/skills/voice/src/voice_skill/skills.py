@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Mapping
 from dataclasses import is_dataclass
 from hashlib import sha256
@@ -12,6 +13,7 @@ from voice_skill.storage import AudioAssetWriter
 
 SKILL_VERSION = "1.0.0"
 DEFAULT_DURATION_DRIFT_RATIO = 0.20
+DEFAULT_STEP_VOICE_ID = "cixingnansheng"
 ERROR_CODES = {
     "TTS_FAILED",
     "PROVIDER_RATE_LIMITED",
@@ -251,6 +253,10 @@ def select_voice_id(
         if voice_id:
             return voice_id
 
+    step_voice_id = _step_default_voice_id(payload, config)
+    if step_voice_id:
+        return step_voice_id
+
     raise TTSAdapterError(f"No voice_id configured for target language {target_language}", code="TTS_FAILED")
 
 
@@ -454,6 +460,41 @@ def _voice_from_language_map(value: Any, target_language: str) -> str | None:
         or value.get("default")
         or value.get("*")
     )
+
+
+def _step_default_voice_id(payload: dict[str, Any], config: dict[str, Any]) -> str | None:
+    for value in (
+        payload.get("step_voice_id"),
+        payload.get("step_tts_voice_id"),
+        payload.get("step_default_voice_id"),
+        config.get("step_voice_id"),
+        config.get("step_tts_voice_id"),
+        config.get("step_default_voice_id"),
+        config.get("step_tts_default_voice_id"),
+        os.environ.get("STEP_TTS_VOICE_ID"),
+        os.environ.get("STEP_TTS_DEFAULT_VOICE_ID"),
+        os.environ.get("STEP_DEFAULT_VOICE_ID"),
+    ):
+        voice_id = _non_empty_str(value)
+        if voice_id:
+            return voice_id
+
+    if _uses_step_tts(config):
+        return DEFAULT_STEP_VOICE_ID
+    return None
+
+
+def _uses_step_tts(config: dict[str, Any]) -> bool:
+    provider = _non_empty_str(
+        config.get("tts_provider")
+        or config.get("voice_provider")
+        or config.get("provider")
+        or os.environ.get("TTS_PROVIDER")
+        or os.environ.get("VOICE_TTS_PROVIDER")
+    )
+    if not provider:
+        return True
+    return provider.lower() in {"step", "stepfun", "step-tts", "step_tts"}
 
 
 def _translation_text(translation: dict[str, Any] | None) -> str:

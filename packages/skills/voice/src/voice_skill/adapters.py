@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import base64
 import json
+import os
+import tempfile
 import wave
 from dataclasses import dataclass
 from io import BytesIO
+from pathlib import Path
 from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.request import Request as HttpRequest
@@ -155,9 +158,74 @@ class DoubaoTTSAdapter:
         )
 
 
+class StepTTSAdapter:
+    provider = "step"
+
+    def __init__(
+        self,
+        *,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        model: str | None = None,
+        instruction: str | None = None,
+        timeout_seconds: float = 60,
+        client: Any | None = None,
+    ) -> None:
+        self.api_key = api_key or os.environ.get("STEP_API_KEY")
+        self.base_url = (base_url or os.environ.get("STEP_BASE_URL") or "https://api.stepfun.com/step_plan/v1").rstrip(
+            "/"
+        )
+        self.model = model or os.environ.get("STEP_TTS_MODEL") or "stepaudio-2.5-tts"
+        self.instruction = instruction
+        self.timeout_seconds = timeout_seconds
+        self._client = client
+
+    def synthesize(self, request: TTSRequest) -> TTSResult:
+        if not self.api_key:
+            raise TTSAdapterError("Missing Step API key", code="PROVIDER_UNAVAILABLE")
+
+        client = self._client or self._openai_client()
+        instruction = _step_instruction(self.instruction, request)
+        output_path = _temporary_audio_path()
+        try:
+            response = client.audio.speech.create(
+                model=self.model,
+                input=request.text,
+                voice=request.voice_id,
+                extra_body={"instruction": instruction},
+                timeout=self.timeout_seconds,
+            )
+            response.write_to_file(output_path)
+            audio = output_path.read_bytes()
+        except TTSAdapterError:
+            raise
+        except Exception as exc:
+            raise _step_error(exc) from exc
+        finally:
+            output_path.unlink(missing_ok=True)
+
+        if not audio:
+            raise TTSAdapterError("Step TTS response did not include audio bytes")
+
+        return TTSResult(
+            audio=audio,
+            actual_duration_ms=_audio_duration_ms(audio) or request.target_duration_ms or _estimate_duration_ms(request.text),
+            provider=self.provider,
+            provider_task_id=_step_provider_task_id(response, request),
+            model=self.model,
+        )
+
+    def _openai_client(self) -> Any:
+        try:
+            from openai import OpenAI
+        except Exception as exc:  # pragma: no cover - optional dependency boundary.
+            raise TTSAdapterError("openai SDK is required for Step TTS", code="PROVIDER_UNAVAILABLE") from exc
+        return OpenAI(api_key=self.api_key, base_url=self.base_url)
+
+
 def adapter_from_config(config: dict[str, Any] | None = None) -> TTSAdapterPort:
     config = config or {}
-    provider = str(config.get("provider") or config.get("tts_provider") or "minimax").lower()
+    provider = _tts_provider(config)
     if provider == "mock":
         return MockTTSAdapter(
             actual_duration_ms=_int_or_none(config.get("mock_actual_duration_ms") or config.get("actual_duration_ms")),
@@ -169,6 +237,20 @@ def adapter_from_config(config: dict[str, Any] | None = None) -> TTSAdapterPort:
             fail_segment_ids=config.get("mock_fail_segment_ids") or [],
             failure_code=str(config.get("failure_code") or config.get("mock_failure_code") or "TTS_FAILED"),
             failure_message=str(config.get("failure_message") or config.get("mock_failure_message") or "Mock TTS failed"),
+        )
+    if provider in {"step", "stepfun", "step-tts", "step_tts"}:
+        return StepTTSAdapter(
+            api_key=_step_config_value(config, "step_api_key", "step_tts_api_key", "tts_api_key", generic_key="api_key"),
+            base_url=_step_config_value(
+                config,
+                "step_base_url",
+                "step_tts_base_url",
+                "tts_base_url",
+                generic_key="base_url",
+            ),
+            model=_step_config_value(config, "step_tts_model", "tts_model", generic_key="model"),
+            instruction=_non_empty_str(config.get("step_tts_instruction") or config.get("tts_instruction")),
+            timeout_seconds=float(config.get("timeout_seconds") or config.get("tts_timeout_seconds") or 60),
         )
     if provider == "minimax":
         return MiniMaxTTSAdapter(
@@ -186,6 +268,49 @@ def adapter_from_config(config: dict[str, Any] | None = None) -> TTSAdapterPort:
             timeout_seconds=float(config.get("timeout_seconds") or 60),
         )
     raise TTSAdapterError(f"Unsupported TTS provider: {provider}", code="PROVIDER_UNAVAILABLE")
+
+
+def _tts_provider(config: dict[str, Any]) -> str:
+    provider = (
+        config.get("tts_provider")
+        or config.get("voice_provider")
+        or config.get("provider")
+        or _tts_env_provider()
+        or "step"
+    )
+    return str(provider).strip().lower()
+
+
+def _tts_env_provider() -> str | None:
+    return _non_empty_str(os.environ.get("TTS_PROVIDER") or os.environ.get("VOICE_TTS_PROVIDER"))
+
+
+def _step_config_value(config: dict[str, Any], *keys: str, generic_key: str | None = None) -> str | None:
+    for key in keys:
+        value = _non_empty_str(config.get(key))
+        if value:
+            return value
+
+    if generic_key and _generic_step_config_allowed(config):
+        return _non_empty_str(config.get(generic_key))
+    return None
+
+
+def _generic_step_config_allowed(config: dict[str, Any]) -> bool:
+    provider = _non_empty_str(config.get("provider"))
+    if provider and provider.strip().lower() in {"step", "stepfun", "step-tts", "step_tts"}:
+        return True
+    return not any(
+        _non_empty_str(config.get(key))
+        for key in (
+            "deepseek_api_key",
+            "deepseek_base_url",
+            "translation_provider",
+            "asr_provider",
+            "minimax_api_key",
+            "doubao_api_key",
+        )
+    )
 
 
 def _json_tts_request(
@@ -258,6 +383,79 @@ def _json_tts_request(
     )
 
 
+def _temporary_audio_path() -> Path:
+    handle = tempfile.NamedTemporaryFile(prefix="step_tts_", suffix=".audio", delete=False)
+    handle.close()
+    return Path(handle.name)
+
+
+def _step_instruction(configured_instruction: str | None, request: TTSRequest) -> str:
+    instruction = configured_instruction or request.style
+    if instruction:
+        return instruction
+    return "自然、清晰地朗读文本。"
+
+
+def _step_provider_task_id(response: Any, request: TTSRequest) -> str:
+    http_response = getattr(response, "response", None)
+    headers = getattr(http_response, "headers", None)
+    request_id = None
+    if headers is not None:
+        request_id = headers.get("x-request-id") or headers.get("x-step-request-id")
+    if request_id:
+        return str(request_id)
+    return f"step_tts_{request.segment_id or 'sync'}"
+
+
+def _step_error(exc: Exception) -> TTSAdapterError:
+    openai_errors = _openai_error_types()
+    if openai_errors is not None:
+        rate_limit_error, timeout_error, connection_error, status_error, api_error = openai_errors
+        if isinstance(exc, rate_limit_error):
+            return TTSAdapterError(_openai_error_message(exc, "Step TTS rate limit exceeded"), code="PROVIDER_RATE_LIMITED")
+        if isinstance(exc, timeout_error):
+            return TTSAdapterError("Step TTS request timed out", code="PROVIDER_UNAVAILABLE")
+        if isinstance(exc, connection_error):
+            return TTSAdapterError(_openai_error_message(exc, "Step TTS provider unavailable"), code="PROVIDER_UNAVAILABLE")
+        if isinstance(exc, status_error):
+            status_code = int(getattr(getattr(exc, "response", None), "status_code", 0) or 0)
+            return TTSAdapterError(_openai_error_message(exc, f"Step TTS HTTP {status_code}"), code=_http_error_code(status_code))
+        if isinstance(exc, api_error):
+            return TTSAdapterError(_openai_error_message(exc, "Step TTS API request failed"))
+
+    if isinstance(exc, TimeoutError):
+        return TTSAdapterError("Step TTS request timed out", code="PROVIDER_UNAVAILABLE")
+    if isinstance(exc, OSError):
+        return TTSAdapterError(f"Step TTS provider unavailable: {exc}", code="PROVIDER_UNAVAILABLE")
+    return TTSAdapterError(f"Step TTS request failed: {exc}")
+
+
+def _openai_error_types() -> tuple[type[Exception], type[Exception], type[Exception], type[Exception], type[Exception]] | None:
+    try:
+        from openai import APIConnectionError, APIError, APIStatusError, APITimeoutError, RateLimitError
+    except Exception:
+        return None
+    return RateLimitError, APITimeoutError, APIConnectionError, APIStatusError, APIError
+
+
+def _openai_error_message(exc: Exception, fallback: str) -> str:
+    message = str(exc).strip()
+    return message or fallback
+
+
+def _audio_duration_ms(audio: bytes) -> int | None:
+    if not audio:
+        return None
+    try:
+        with wave.open(BytesIO(audio), "rb") as handle:
+            framerate = handle.getframerate()
+            if framerate <= 0:
+                return None
+            return int(round(handle.getnframes() * 1000 / framerate))
+    except wave.Error:
+        return None
+
+
 def _extract_audio(data: dict[str, Any]) -> bytes | None:
     value = (
         data.get("audio_base64")
@@ -319,3 +517,10 @@ def _int_or_none(value: Any) -> int | None:
         return int(round(float(value)))
     except (TypeError, ValueError):
         return None
+
+
+def _non_empty_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None

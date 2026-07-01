@@ -1,8 +1,21 @@
 from __future__ import annotations
 
+from io import BytesIO
 from pathlib import Path
+import wave
 
-from voice_skill import MockTTSAdapter, VoiceSkillRunner, tts_segment_path
+import pytest
+
+from voice_skill import (
+    MockTTSAdapter,
+    StepTTSAdapter,
+    TTSAdapterError,
+    TTSRequest,
+    VoiceSkillRunner,
+    adapter_from_config,
+    select_voice_id,
+    tts_segment_path,
+)
 
 
 def _request(
@@ -202,3 +215,214 @@ def test_unauthorized_voice_clone_request_is_rejected() -> None:
 
     assert response["status"] == "failed"
     assert response["error"]["code"] == "SKILL_RUN_FAILED"
+
+
+def test_adapter_from_config_prefers_tts_provider_for_composite_config() -> None:
+    adapter = adapter_from_config(
+        {
+            "provider": "deepseek",
+            "api_key": "deepseek-key",
+            "model": "deepseek-chat",
+            "tts_provider": "step",
+            "step_api_key": "step-key",
+            "step_base_url": "https://step.example/v1",
+            "step_tts_model": "step-model",
+        }
+    )
+
+    assert isinstance(adapter, StepTTSAdapter)
+    assert adapter.api_key == "step-key"
+    assert adapter.base_url == "https://step.example/v1"
+    assert adapter.model == "step-model"
+
+
+def test_adapter_from_config_defaults_to_step_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("STEP_API_KEY", "env-step-key")
+    monkeypatch.setenv("STEP_BASE_URL", "https://env-step.example/v1")
+    monkeypatch.setenv("STEP_TTS_MODEL", "env-step-model")
+
+    adapter = adapter_from_config({})
+
+    assert isinstance(adapter, StepTTSAdapter)
+    assert adapter.api_key == "env-step-key"
+    assert adapter.base_url == "https://env-step.example/v1"
+    assert adapter.model == "env-step-model"
+
+
+def test_step_tts_adapter_calls_openai_speech_create() -> None:
+    audio = _silent_wav(1234)
+    speech = _FakeSpeech(audio)
+    client = _FakeOpenAIClient(speech)
+    adapter = StepTTSAdapter(
+        api_key="step-key",
+        base_url="https://step.example/v1",
+        model="stepaudio-test",
+        instruction="dramatic delivery",
+        client=client,
+    )
+
+    result = adapter.synthesize(
+        TTSRequest(
+            target_language="en-US",
+            text="What exactly do you want from me?",
+            voice_id="linjiajiejie",
+            target_duration_ms=2400,
+            speed=1.0,
+            style=None,
+            segment_id="seg_0001",
+        )
+    )
+
+    assert result.audio == audio
+    assert result.actual_duration_ms == 1234
+    assert result.provider == "step"
+    assert result.provider_task_id == "req_step_123"
+    assert speech.calls == [
+        {
+            "model": "stepaudio-test",
+            "input": "What exactly do you want from me?",
+            "voice": "linjiajiejie",
+            "extra_body": {"instruction": "dramatic delivery"},
+            "timeout": 60,
+        }
+    ]
+
+
+def test_step_tts_adapter_requires_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("STEP_API_KEY", raising=False)
+    adapter = StepTTSAdapter(api_key="", client=_FakeOpenAIClient(_FakeSpeech(_silent_wav(1000))))
+
+    with pytest.raises(TTSAdapterError) as exc_info:
+        adapter.synthesize(
+            TTSRequest(
+                target_language="en-US",
+                text="Hello",
+                voice_id="cixingnansheng",
+                target_duration_ms=1000,
+            )
+        )
+
+    assert exc_info.value.code == "PROVIDER_UNAVAILABLE"
+    assert "Missing Step API key" in str(exc_info.value)
+
+
+def test_step_tts_adapter_maps_rate_limit_error() -> None:
+    import httpx
+    from openai import RateLimitError
+
+    request = httpx.Request("POST", "https://step.example/v1/audio/speech")
+    response = httpx.Response(429, request=request)
+    adapter = StepTTSAdapter(
+        api_key="step-key",
+        client=_FakeOpenAIClient(_FailingSpeech(RateLimitError("rate limited", response=response, body=None))),
+    )
+
+    with pytest.raises(TTSAdapterError) as exc_info:
+        adapter.synthesize(
+            TTSRequest(
+                target_language="en-US",
+                text="Hello",
+                voice_id="cixingnansheng",
+                target_duration_ms=1000,
+            )
+        )
+
+    assert exc_info.value.code == "PROVIDER_RATE_LIMITED"
+
+
+def test_step_tts_adapter_maps_timeout_error() -> None:
+    import httpx
+    from openai import APITimeoutError
+
+    request = httpx.Request("POST", "https://step.example/v1/audio/speech")
+    adapter = StepTTSAdapter(
+        api_key="step-key",
+        client=_FakeOpenAIClient(_FailingSpeech(APITimeoutError(request=request))),
+    )
+
+    with pytest.raises(TTSAdapterError) as exc_info:
+        adapter.synthesize(
+            TTSRequest(
+                target_language="en-US",
+                text="Hello",
+                voice_id="cixingnansheng",
+                target_duration_ms=1000,
+            )
+        )
+
+    assert exc_info.value.code == "PROVIDER_UNAVAILABLE"
+    assert "timed out" in str(exc_info.value)
+
+
+def test_step_default_voice_uses_builtin_voice(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("STEP_TTS_VOICE_ID", raising=False)
+    monkeypatch.delenv("STEP_TTS_DEFAULT_VOICE_ID", raising=False)
+    monkeypatch.delenv("STEP_DEFAULT_VOICE_ID", raising=False)
+
+    voice_id = select_voice_id(
+        segment={"segment_id": "seg_0001"},
+        translation=None,
+        speakers={},
+        payload={},
+        config={"tts_provider": "step"},
+        target_language="en-US",
+    )
+
+    assert voice_id == "cixingnansheng"
+
+
+def test_step_default_voice_can_use_builtin_voice_from_config() -> None:
+    voice_id = select_voice_id(
+        segment={"segment_id": "seg_0001"},
+        translation=None,
+        speakers={},
+        payload={},
+        config={"tts_provider": "step", "step_tts_voice_id": "linjiajiejie"},
+        target_language="en-US",
+    )
+
+    assert voice_id == "linjiajiejie"
+
+
+class _FakeOpenAIClient:
+    def __init__(self, speech: "_FakeSpeech") -> None:
+        self.audio = type("Audio", (), {"speech": speech})()
+
+
+class _FakeSpeech:
+    def __init__(self, audio: bytes) -> None:
+        self.audio = audio
+        self.calls: list[dict] = []
+
+    def create(self, **kwargs: object) -> "_FakeSpeechResponse":
+        self.calls.append(dict(kwargs))
+        return _FakeSpeechResponse(self.audio)
+
+
+class _FailingSpeech:
+    def __init__(self, exc: Exception) -> None:
+        self.exc = exc
+
+    def create(self, **_kwargs: object) -> "_FakeSpeechResponse":
+        raise self.exc
+
+
+class _FakeSpeechResponse:
+    response = type("Response", (), {"headers": {"x-request-id": "req_step_123"}})()
+
+    def __init__(self, audio: bytes) -> None:
+        self.audio = audio
+
+    def write_to_file(self, output_path: str | Path) -> None:
+        Path(output_path).write_bytes(self.audio)
+
+
+def _silent_wav(duration_ms: int, *, sample_rate: int = 16_000) -> bytes:
+    sample_count = int(sample_rate * duration_ms / 1000)
+    buffer = BytesIO()
+    with wave.open(buffer, "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(sample_rate)
+        handle.writeframes(b"\x00\x00" * sample_count)
+    return buffer.getvalue()
