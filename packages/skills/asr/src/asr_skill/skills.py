@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import is_dataclass
+from pathlib import Path
 from typing import Any
 
 from asr_skill.adapters import ASRAdapterError, ASRAdapterPort, ASRRequest, adapter_from_config
@@ -199,24 +200,47 @@ def _source_vocal(payload: dict[str, Any], *, required: bool = True) -> dict[str
         payload.get("source_vocal")
         or payload.get("source_vocal_asset")
         or payload.get("source_vocal_asset_id")
+        or payload.get("vocal_asset_id")
         or payload.get("audio_asset_id")
     )
     if value is None:
         assets = payload.get("assets")
         if isinstance(assets, dict):
-            value = assets.get("source_vocal") or assets.get("audio.separate_sources")
+            value = assets.get("source_vocal") or assets.get("audio.separate_sources") or assets.get("source_vocal_asset")
     if value is None:
         if required:
             raise ValueError("source_vocal is required")
         return {}
     if isinstance(value, dict):
         asset_id = value.get("asset_id") or value.get("id") or value.get("uri") or value.get("path")
+        uri = value.get("uri")
+        path = value.get("path")
+        # If no path but has uri, try to resolve from storage_root
+        if not path and uri:
+            path = _resolve_uri_to_path(uri, payload)
         return {
             "asset_id": str(asset_id),
-            "uri": value.get("uri"),
-            "path": value.get("path"),
+            "uri": uri,
+            "path": path,
         }
-    return {"asset_id": str(value), "uri": None, "path": str(value) if "/" in str(value) else None}
+    # value is a string — could be a path or asset_id
+    if "/" in str(value):
+        return {"asset_id": str(value), "uri": None, "path": str(value)}
+    # It's an asset_id, try to find uri/path from upstream outputs
+    uri = payload.get("uri") or payload.get("source_vocal_uri")
+    path = _resolve_uri_to_path(uri, payload) if uri else None
+    return {"asset_id": str(value), "uri": uri, "path": path}
+
+
+def _resolve_uri_to_path(uri: str, payload: dict[str, Any]) -> str | None:
+    """Resolve a storage:// URI to a local file path using storage_root from payload."""
+    if not uri or not uri.startswith("storage://private/"):
+        return None
+    key = uri.replace("storage://private/", "")
+    storage_root = payload.get("storage_root") or payload.get("local_storage_root")
+    if storage_root:
+        return str(Path(storage_root) / key)
+    return None
 
 
 def _raw_transcript(payload: dict[str, Any]) -> dict[str, Any]:

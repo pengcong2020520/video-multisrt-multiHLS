@@ -194,6 +194,9 @@ _UPSTREAM_OUTPUT_KEYS = (
     "audio_asset",
     "vocal_asset_id",
     "background_asset_id",
+    "source_vocal",
+    "source_vocal_asset",
+    "source_vocal_asset_id",
     # Subtitle/manifest assets
     "srt_asset_id",
     "vtt_asset_id",

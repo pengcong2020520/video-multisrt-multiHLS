@@ -167,7 +167,7 @@ class FasterWhisperAdapter:
         *,
         model_size: str = "small",
         device: str = "auto",
-        compute_type: str = "default",
+        compute_type: str = "float32",  # macOS ARM doesn't support efficient float16
         **model_kwargs: Any,
     ) -> None:
         self.model = model_size
