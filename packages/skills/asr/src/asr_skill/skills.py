@@ -47,6 +47,10 @@ def transcribe(
     storage = storage or _storage_from_config(config)
 
     source_vocal = _source_vocal(request_input)
+    # Also pass config (which has storage_root) so URI can be resolved to path
+    if not source_vocal.get("path"):
+        config_for_resolve = {**config, **request_input}
+        source_vocal = _source_vocal({**request_input, **config})
     source_language = str(request_input.get("source_language") or "auto")
     enable_diarization = bool(request_input.get("enable_diarization", False))
     asr_request = ASRRequest(
@@ -56,6 +60,9 @@ def transcribe(
         audio_uri=source_vocal.get("uri"),
         audio_path=source_vocal.get("path"),
     )
+    import os as _os
+    print(f"[asr.transcribe] source_vocal={source_vocal}", flush=True)
+    print(f"[asr.transcribe] audio_path={asr_request.audio_path} exists={_os.path.exists(asr_request.audio_path) if asr_request.audio_path else 'N/A'}", flush=True)
 
     try:
         result = adapter.transcribe(asr_request)
