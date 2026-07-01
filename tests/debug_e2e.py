@@ -15,8 +15,8 @@ proj = r.json()
 pid = proj["project_id"]
 print(f"   project_id={pid}")
 
-# 2. 复制视频
-dst = os.path.join(STORAGE, pid, "source", "source.mp4")
+# 2. 复制视频 — 路径必须匹配 DB 里的 URI：storage://private/projects/{pid}/source/source.mp4
+dst = os.path.join(STORAGE, "projects", pid, "source", "source.mp4")
 os.makedirs(os.path.dirname(dst), exist_ok=True)
 shutil.copy(VIDEO, dst)
 print(f"2. Video copied to {dst}")

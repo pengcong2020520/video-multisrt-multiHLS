@@ -102,12 +102,35 @@
 2. **对抗式审查**：每完成一个阶段，换挑刺者视角重新审视——边界检查、契约一致性、链路完整性、Spec 合规、安全盲区。发现问题立即修，不攒着。
 
 ## 下一步行动
-→ **对抗式审查已完成，3 个致命问题正在修复中：**
-1. NoopSkillRunner → 创建 CompositeSkillRunner 接线 5 个 skill 包
-2. Skill 输出未持久化 → 创建 ResponsePersister 写入 DB
-3. Step 间数据断裂 → RunContext 传递完整 outputs
+→ E2E 测试进行中。已修 4 个运行时 bug，正在修第 5 个（文件路径不匹配：`storage/proj_xxx/` vs `storage/projects/proj_xxx/`）。
+→ 修完后继续跑通：probe → extract → separate → ASR → translate → subtitle → TTS → mix → manifest → 预览
 
-修复完成后进入：安装真实依赖 + 找视频 + 端到端集成测试
-→ shared-types 消费方式：`import { ... } from '@video-multisrt/shared-types'`，
-  先 `npm run build` 产出 dist；类型/Schema/枚举/路径函数见 src/index.ts。
-  字段缺口先在此包按 Spec 扩展，再消费（任务卡备注）。
+## 项目复盘经验（持续更新）
+
+### ✅ 成功经验（可复用）
+
+1. **Codex 编排拆模块效果好**：Codex CLI 读 Spec 后自主拆 9 个模块，每张任务卡精确到 Spec 章节号，复杂度标注准确。比人工拆更快更全面。
+2. **Codex/Claude Code 分工并行**：simple 模块(shared-types)给 Claude Code(GLM) 做，complex 模块给 Codex 做。两者并行，15 分钟完成 shared-types，20 分钟完成 api。
+3. **对抗式审查必须做**：9 个模块各自单测 95+ 全过，但拼在一起是空壳——NoopSkillRunner 没接线、持久化断裂、数据传递断裂。单测通过 ≠ 系统能跑通。
+4. **每步 commit+push 到 GitHub**：出问题随时回滚，不怕改坏。开发过程中每次修复都立即推送。
+5. **任务卡驱动开发**：每个模块有独立任务卡（tasks/*.md），Codex 读任务卡+Spec 后自主实现，产出质量高。
+6. **Mock 优先的测试策略**：所有 skill 包用 Mock adapter，单测不依赖真实 FFmpeg/模型/API，跑得快（0.01s）。
+7. **prompt 写入临时文件再 cat 传给 Codex**：避免 Unicode（§+CJK）被安全扫描拦截。
+
+### ❌ 失败教训（要避免）
+
+1. **模块间接线缺失**：9 个模块各自开发，但没人负责"接线"——CompositeSkillRunner、DatabaseResponsePersister、RunContext 数据传递都没有。**教训：编排者不仅要拆任务，还要定义模块间集成契约。**
+2. **auto_execute=False 但没 worker**：runtime 创建 run 后 enqueue 到 Redis，但没有任何 worker 从队列消费。run 永远 pending。**教训：MVP 阶段用 auto_execute=True 同步执行，不要引入队列除非有 consumer。**
+3. **SkillDefinition 未初始化**：registry 从 DB 查 SkillDefinition 但没人初始化。**教训：需要 allow_missing_defaults=True 或启动时 seed 默认 SkillDefinition。**
+4. **storage_root 未注入到 skill config**：CompositeSkillRunner 没把 STORAGE_ROOT 环境变量传给 skill，导致 ffprobe 找不到文件。**教训：skill 需要的配置必须显式注入，不能假设环境变量自动可用。**
+5. **文件路径不匹配**：DB 里 URI 是 `storage://private/projects/{pid}/source/source.mp4`，但测试脚本复制文件到 `storage/{pid}/source/source.mp4`（少了 `projects/` 层）。**教训：上传逻辑和存储路径必须严格对齐 Spec §8 规范。**
+6. **TS/Python 类型各写各的**：shared-types(TS) 和 schemas.py(Python) 的字段可空性不一致。**教训：跨语言项目需要一份单一数据源(source of truth)定义类型契约。**
+7. **uvicorn --timeout 不是有效参数**：导致服务启动失败。**教训：先验证 CLI 参数再写启动脚本。**
+8. **upload_url PUT 404**：签名 URL 对应的上传路由不存在。**教训：storage 层的上传端点要和签名 URL 生成逻辑匹配。**
+
+### 🔧 调试方法论
+
+1. **加调试日志**：在关键路径加 print(flush=True)，看实际传了什么值。
+2. **从第一性原理分析**：不走猜测，回到"数据从哪来？到哪去？谁依赖谁？"的本质问题。
+3. **逐层排查**：先确认服务启动 → API 可达 → 数据库写入 → skill 执行 → 文件路径 → 业务逻辑。
+4. **每次只改一个变量**：修复一个问题就重跑测试，不要攒多个修改一起测。
