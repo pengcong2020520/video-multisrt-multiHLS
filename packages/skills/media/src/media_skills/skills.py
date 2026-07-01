@@ -53,7 +53,13 @@ def probe(
             asset_keys=("source_video", "source_video_asset", "asset"),
             uri_keys=("source_video_uri", "uri"),
         )
-        metadata = adapter.probe(resolver.input_path(source_video))
+        _probe_path = resolver.input_path(source_video)
+        import os as _os
+        print(f"[media.probe] config={config}", flush=True)
+        print(f"[media.probe] source_video={source_video}", flush=True)
+        print(f"[media.probe] probe_path={_probe_path}", flush=True)
+        print(f"[media.probe] file_exists={_os.path.exists(_probe_path)}", flush=True)
+        metadata = adapter.probe(_probe_path)
         validate_probe_metadata(metadata, max_duration_ms=_max_duration_ms(config))
         return success_response(
             metadata.to_skill_output(),

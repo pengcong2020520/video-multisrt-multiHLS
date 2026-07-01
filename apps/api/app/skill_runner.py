@@ -138,6 +138,7 @@ class CompositeSkillRunner(SkillRunnerPort):
         _sr = _os.environ.get("STORAGE_ROOT", "./storage")
         # Resolve to absolute path so skills can find files regardless of cwd
         self._storage_root = str(_os.path.abspath(_sr))
+        print(f"[CompositeSkillRunner] storage_root={self._storage_root}", flush=True)
 
     def invoke(self, request: SkillRequest) -> dict[str, Any]:
         skill_name = request.skill_name
