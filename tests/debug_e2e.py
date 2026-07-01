@@ -58,3 +58,65 @@ print(f"   duration={pd.get('project',{}).get('duration_ms')}")
 print(f"   assets={len(pd.get('assets',[]))}")
 for a in pd.get("assets",[]):
     print(f"     {a.get('type')}: {a.get('uri','')[:60]}")
+
+# 7. 如果 waiting_human，先 PATCH 一个 segment（满足 proofreading 确认条件），再 continue
+status = data.get("agent_run",{}).get("status","")
+if status == "waiting_human":
+    # 先 PATCH segment 满足 _has_saved_human_edit 检查
+    if segs:
+        seg_id = segs[0].get("segment",{}).get("segment_id","")
+        if seg_id:
+            print(f"\n6.5. PATCH segment {seg_id} (satisfy proofreading requirement)")
+            r = requests.patch(f"{API}/projects/{pid}/segments/{seg_id}",
+                json={"translation_text": segs[0].get("translation",{}).get("text","")},
+                headers=H, timeout=30)
+            print(f"   PATCH: {r.status_code}")
+    
+    print(f"\n7. Continue (proofreading → TTS + mix + manifest)")
+    r = requests.post(f"{API}/agent-runs/{rid}/continue",
+        json={"checkpoint":"proofreading","confirmed":True},
+        headers=H, timeout=600)
+    print(f"   Continue: {r.status_code} {r.text[:200]}")
+    
+    # 等待完成
+    for i in range(120):
+        r = requests.get(f"{API}/agent-runs/{rid}", headers={"X-User-Id":"test"}, timeout=10)
+        data2 = r.json()
+        st = data2.get("agent_run",{}).get("status","")
+        step = data2.get("agent_run",{}).get("current_step","")
+        print(f"   [{i*5}s] status={st} step={step}")
+        if st in ("succeeded","failed"):
+            break
+        time.sleep(5)
+    
+    # 检查最终 skill runs
+    for sr in data2.get("skill_runs",[]):
+        print(f"   skill={sr.get('skill_name')} status={sr.get('status')} error={sr.get('error')}")
+    
+    # 查最终 segments
+    r = requests.get(f"{API}/projects/{pid}/segments?target_language=en-US", headers={"X-User-Id":"test"}, timeout=10)
+    segs2 = r.json().get("segments",[])
+    print(f"\n8. Final segments: {len(segs2)}")
+    for s in segs2[:5]:
+        seg = s.get("segment",{})
+        tr = s.get("translation",{})
+        tts = s.get("tts_job") or {}
+        print(f"   [{seg.get('start_ms')}-{seg.get('end_ms')}] {seg.get('source_text','')}")
+        print(f"     → {tr.get('text','')}")
+        print(f"     TTS: status={tts.get('status','?')} voice={tts.get('voice_id','?')} dur={tts.get('actual_duration_ms','?')}")
+    
+    # 查 manifest
+    r = requests.get(f"{API}/projects/{pid}/manifest", headers={"X-User-Id":"test"}, timeout=10)
+    print(f"\n9. Manifest: {r.status_code}")
+    if r.status_code == 200:
+        manifest = r.json()
+        print(f"   subtitles={len(manifest.get('subtitles',[]))}")
+        print(f"   audio_tracks={len(manifest.get('audio_tracks',[]))}")
+        print(f"   downloads={len(manifest.get('downloads',[]))}")
+    
+    # 查文件
+    print(f"\n10. Generated files:")
+    for root, dirs, files in os.walk(STORAGE):
+        for f in files:
+            fp = os.path.join(root, f)
+            print(f"   {os.path.relpath(fp, STORAGE)} ({os.path.getsize(fp)//1024}KB)")
