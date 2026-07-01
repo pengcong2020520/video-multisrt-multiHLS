@@ -135,7 +135,9 @@ class CompositeSkillRunner(SkillRunnerPort):
         self._voice_runner = voice_runner
         # Inject storage_root from env so skills can find files on disk
         import os as _os
-        self._storage_root = _os.environ.get("STORAGE_ROOT", "./storage")
+        _sr = _os.environ.get("STORAGE_ROOT", "./storage")
+        # Resolve to absolute path so skills can find files regardless of cwd
+        self._storage_root = str(_os.path.abspath(_sr))
 
     def invoke(self, request: SkillRequest) -> dict[str, Any]:
         skill_name = request.skill_name
